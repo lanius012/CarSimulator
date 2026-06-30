@@ -43,7 +43,7 @@ Dirextx mini engine으로 자동차와 도로를 띄우기
 
 1) Directx mini engine에 대한 이해 및 기본적인 장면 출력
 
-2) physicsx에 대한 이해 및 실행
+2) Physx에 대한 이해 및 실행
 
 3) belnder로 기본적인 입체도형과 지면 만들기
 
