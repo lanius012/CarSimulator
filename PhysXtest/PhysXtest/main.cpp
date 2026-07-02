@@ -97,13 +97,24 @@ void initPhysics(bool interactive)
 		createDynamic(PxTransform(PxVec3(0, 40, 100)), PxSphereGeometry(10), PxVec3(0, -50, -100));
 	*/
 
-	createDynamic(PxTransform(PxVec3(0, 1.2f, 0)), PxBoxGeometry(1.0f, 0.2f, 2.0f), PxVec3(0.0f, 1.0f, 0.0f));
 	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.2f);
 
-	PxPrismaticJoint* joint1 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(-0.5f, -0.2f, -1.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
-	PxPrismaticJoint* joint2 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(+0.5f, -0.2f, -1.0f)), gActors[2], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
-	PxPrismaticJoint* joint3 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(-0.5f, -0.2f, +1.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
-	PxPrismaticJoint* joint4 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(+0.5f, -0.2f, +1.0f)), gActors[4], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
+	PxDistanceJoint* joint1 = PxDistanceJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxDistanceJoint* joint2 = PxDistanceJointCreate(*gPhysics, gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxDistanceJoint* joint3 = PxDistanceJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxDistanceJoint* joint4 = PxDistanceJointCreate(*gPhysics, gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+
+	joint1->setMinDistance(0.99f);
+	joint1->setMaxDistance(1.01f);
+
+	joint2->setMinDistance(0.99f);
+	joint2->setMaxDistance(1.01f);
+
+	joint3->setMinDistance(1.98f);
+	joint3->setMaxDistance(2.02f);
+
+	joint4->setMinDistance(1.98f);
+	joint4->setMaxDistance(2.02f);
 
 
 }
