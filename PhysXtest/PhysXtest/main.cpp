@@ -21,6 +21,7 @@ static PxRigidDynamic* createDynamic(const PxTransform& t, const PxGeometry& geo
 	dynamic->setAngularDamping(0.5f);
 	dynamic->setLinearVelocity(velocity);
 	gScene->addActor(*dynamic);
+	gActors.pushBack(dynamic);
 	return dynamic;
 }
 
@@ -67,6 +68,7 @@ void initPhysics(bool interactive)
 	gPvd->connect(*transport, PxPvdInstrumentationFlag::eALL);
 
 	gPhysics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, PxTolerancesScale(), true, gPvd);
+	PxInitExtensions(*gPhysics, gPvd);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
 	sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
@@ -97,6 +99,13 @@ void initPhysics(bool interactive)
 
 	createDynamic(PxTransform(PxVec3(0, 1.2f, 0)), PxBoxGeometry(1.0f, 0.2f, 2.0f), PxVec3(0.0f, 1.0f, 0.0f));
 	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.2f);
+
+	PxPrismaticJoint* joint1 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(-0.5f, -0.2f, -1.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
+	PxPrismaticJoint* joint2 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(+0.5f, -0.2f, -1.0f)), gActors[2], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
+	PxPrismaticJoint* joint3 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(-0.5f, -0.2f, +1.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
+	PxPrismaticJoint* joint4 = PxPrismaticJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(+0.5f, -0.2f, +1.0f)), gActors[4], PxTransform(PxVec3(0.0f, 0.5f, 0.0f)));
+
+
 }
 
 void stepPhysics(bool /*interactive*/)
@@ -114,6 +123,7 @@ void cleanupPhysics(bool /*interactive*/)
 	}
 	gConvexes.reset();
 
+	
 	PX_RELEASE(gScene);
 
 	while (!gActors.empty()) {
@@ -121,7 +131,6 @@ void cleanupPhysics(bool /*interactive*/)
 		gActors.popBack();
 	}
 	gActors.reset();
-
 
 	PX_RELEASE(gDispatcher);
 	PX_RELEASE(gPhysics);
