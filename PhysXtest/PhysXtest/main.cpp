@@ -97,24 +97,34 @@ void initPhysics(bool interactive)
 		createDynamic(PxTransform(PxVec3(0, 40, 100)), PxSphereGeometry(10), PxVec3(0, -50, -100));
 	*/
 
+	PxRigidStatic* groundSphere = PxCreateStatic(*gPhysics, PxTransform(PxVec3(-1.0f, 0.0f, 3.0f)), PxSphereGeometry(1.0f), *gMaterial);
+	gScene->addActor(*groundSphere);
+
 	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.2f);
 
-	PxDistanceJoint* joint1 = PxDistanceJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
-	PxDistanceJoint* joint2 = PxDistanceJointCreate(*gPhysics, gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
-	PxDistanceJoint* joint3 = PxDistanceJointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
-	PxDistanceJoint* joint4 = PxDistanceJointCreate(*gPhysics, gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	
 
-	joint1->setMinDistance(0.99f);
-	joint1->setMaxDistance(1.01f);
 
-	joint2->setMinDistance(0.99f);
-	joint2->setMaxDistance(1.01f);
 
-	joint3->setMinDistance(1.98f);
-	joint3->setMaxDistance(2.02f);
+	PxRigidDynamic* ghost = createDynamic(PxTransform(PxVec3(0.0f,0.5f,0.0f)), PxBoxGeometry(0.5f,0.05f,1.0f));
 
-	joint4->setMinDistance(1.98f);
-	joint4->setMaxDistance(2.02f);
+	ghost->setActorFlag(PxActorFlag::eDISABLE_GRAVITY, true);
+	PxShape* shape = NULL;
+	ghost->getShapes(&shape, 1);
+
+	shape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
+	shape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, false);
+	gScene->addActor(*ghost);
+
+	PxD6Joint* joint1 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(-0.5f, 0.0f, -1.0f)), gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxD6Joint* joint2 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(0.5f,0.0f, -1.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxD6Joint* joint3 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(-0.5f,0.0f, 1.0f)), gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxD6Joint* joint4 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(0.5f, 0.0f, 1.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+
+	joint1->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint2->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint3->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint4->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
 
 
 }
