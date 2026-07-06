@@ -38,8 +38,11 @@ static void createWheel(const PxTransform& t, PxReal halfx, PxReal halfz, PxReal
 
 	wheelshape->setFlag(PxShapeFlag::eVISUALIZATION, true);
 
+	//PxShape* wheelshape = gPhysics->createShape(PxSphereGeometry(5.0f), *gMaterial);
+
 	PxVec3 wheelOffsets[4] =
 	{
+		//PxVec3(0,radius,0),
 		PxVec3(t.p.x - halfx, radius, t.p.z - halfz),
 		PxVec3(t.p.x + halfx, radius, t.p.z - halfz),
 		PxVec3(t.p.x - halfx, radius, t.p.z + halfz),
@@ -54,7 +57,7 @@ static void createWheel(const PxTransform& t, PxReal halfx, PxReal halfz, PxReal
 		body->attachShape(*wheelshape);
 		PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
 
-		body->setAngularVelocity(PxVec3(50.0f, 0.0f, 0.0f));
+		//body->setAngularVelocity(PxVec3(50.0f, 0.0f, 0.0f));
 
 		gScene->addActor(*body);
 		gActors.pushBack(body);
@@ -79,6 +82,8 @@ void initPhysics(bool interactive)
 	gDispatcher = PxDefaultCpuDispatcherCreate(2);
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
+
+	sceneDesc.solverType=PxSolverType::eTGS;
 	gScene = gPhysics->createScene(sceneDesc);
 
 	gScene->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0f);
@@ -101,10 +106,10 @@ void initPhysics(bool interactive)
 		createDynamic(PxTransform(PxVec3(0, 40, 100)), PxSphereGeometry(10), PxVec3(0, -50, -100));
 	*/
 
-	PxRigidStatic* groundSphere = PxCreateStatic(*gPhysics, PxTransform(PxVec3(-1.0f, 0.0f, 3.0f)), PxSphereGeometry(1.0f), *gMaterial);
-	gScene->addActor(*groundSphere);
+	//PxRigidStatic* groundSphere = PxCreateStatic(*gPhysics, PxTransform(PxVec3(-1.0f, 0.0f, 3.0f)), PxSphereGeometry(1.0f), *gMaterial);
+	//gScene->addActor(*groundSphere);
 
-	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.2f);
+	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.35f);
 
 	
 
@@ -148,6 +153,25 @@ void initPhysics(bool interactive)
 	joint2->setDrive(PxD6Drive::eY, drive);
 	joint3->setDrive(PxD6Drive::eY, drive);
 	joint4->setDrive(PxD6Drive::eY, drive);
+
+	/*PxD6Joint* joint5 = PxD6JointCreate(*gPhysics, gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	PxD6Joint* joint6 = PxD6JointCreate(*gPhysics, gActors[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), gActors[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
+	joint5->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	//joint5->setMotion(PxD6Axis::eSWING1, PxD6Motion::eFREE);
+	joint5->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint5->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint5->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint5->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+
+	joint6->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	//joint6->setMotion(PxD6Axis::eSWING1, PxD6Motion::eFREE);
+	joint6->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint6->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint6->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+	joint6->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);*/
+
+
+
 
 
 }
@@ -193,15 +217,22 @@ int main()
 {
 	static const PxU32 frameCount = 600;
 	initPhysics(false);
-	for (PxU32 i = 0; i < frameCount; i++)
-		/*if (GetAsyncKeyState(0x20) & 0x8000) {
-			std::cout<<"key Pressed\n";
-			//gActors[0]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
-			//gActors[1]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
-			//gActors[2]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
-			//gActors[3]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
-		}*/
+	for (PxU32 i = 0; i < frameCount; i++) {
+		if (GetAsyncKeyState(VK_UP) & 0x8000) {
+			gActors[0]->addTorque(gActors[0]->getGlobalPose().q.rotate(PxVec3(20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[1]->addTorque(gActors[1]->getGlobalPose().q.rotate(PxVec3(20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[2]->addTorque(gActors[2]->getGlobalPose().q.rotate(PxVec3(20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[3]->addTorque(gActors[3]->getGlobalPose().q.rotate(PxVec3(20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+		}
+		if (GetAsyncKeyState(VK_DOWN) * 0x8000) {
+			gActors[0]->addTorque(gActors[0]->getGlobalPose().q.rotate(PxVec3(-20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[1]->addTorque(gActors[1]->getGlobalPose().q.rotate(PxVec3(-20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[2]->addTorque(gActors[2]->getGlobalPose().q.rotate(PxVec3(-20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+			gActors[3]->addTorque(gActors[3]->getGlobalPose().q.rotate(PxVec3(-20.0f, 0.0f, 0.0f)), PxForceMode::eFORCE);
+		}
 		stepPhysics(false);
+		Sleep(16);
+	}
 	cleanupPhysics(false);
 
 	return 0;
