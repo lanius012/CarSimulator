@@ -1,6 +1,9 @@
 #include "PxPhysicsAPI.h"
 #include "extensions/PxCustomGeometryExt.h"
 
+#include <iostream>
+#include <windows.h>
+
 using namespace physx;
 
 static PxDefaultAllocator		gAllocator;
@@ -13,7 +16,7 @@ static PxMaterial* gMaterial = NULL;
 static PxPvd* gPvd = NULL;
 
 static PxArray<PxCustomGeometryExt::BaseConvexCallbacks*> gConvexes;
-static PxArray<PxRigidActor*> gActors;
+static PxArray<PxRigidDynamic*> gActors;
 
 static PxRigidDynamic* createDynamic(const PxTransform& t, const PxGeometry& geometry, const PxVec3& velocity = PxVec3(0))
 {
@@ -51,7 +54,8 @@ static void createWheel(const PxTransform& t, PxReal halfx, PxReal halfz, PxReal
 		body->attachShape(*wheelshape);
 		PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
 
-		body->setAngularVelocity(PxVec3(20.0f, 0.0f, 0.0f));
+		body->setAngularVelocity(PxVec3(50.0f, 0.0f, 0.0f));
+
 		gScene->addActor(*body);
 		gActors.pushBack(body);
 	}
@@ -114,7 +118,8 @@ void initPhysics(bool interactive)
 
 	shape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
 	shape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, false);
-	gScene->addActor(*ghost);
+
+
 
 	PxD6Joint* joint1 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(-0.5f, 0.0f, -1.0f)), gActors[0], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
 	PxD6Joint* joint2 = PxD6JointCreate(*gPhysics, ghost, PxTransform(PxVec3(0.5f,0.0f, -1.0f)), gActors[1], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
@@ -125,6 +130,24 @@ void initPhysics(bool interactive)
 	joint2->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
 	joint3->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
 	joint4->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
+
+	joint1->setMotion(PxD6Axis::eY, PxD6Motion::eLIMITED);
+	joint2->setMotion(PxD6Axis::eY, PxD6Motion::eLIMITED);
+	joint3->setMotion(PxD6Axis::eY, PxD6Motion::eLIMITED);
+	joint4->setMotion(PxD6Axis::eY, PxD6Motion::eLIMITED);
+
+
+	PxJointLinearLimitPair ylimit(gPhysics->getTolerancesScale(),-0.3f, 0.3f);
+	joint1->setLinearLimit(PxD6Axis::eY,ylimit);
+	joint2->setLinearLimit(PxD6Axis::eY, ylimit);
+	joint3->setLinearLimit(PxD6Axis::eY, ylimit);
+	joint4->setLinearLimit(PxD6Axis::eY, ylimit);
+
+	PxD6JointDrive drive(1000.0f, 100.0f, PX_MAX_F32, true);
+	joint1->setDrive(PxD6Drive::eY, drive);
+	joint2->setDrive(PxD6Drive::eY, drive);
+	joint3->setDrive(PxD6Drive::eY, drive);
+	joint4->setDrive(PxD6Drive::eY, drive);
 
 
 }
@@ -166,21 +189,18 @@ void cleanupPhysics(bool /*interactive*/)
 	printf("SnippetHelloWorld done.\n");
 }
 
-
-/*void keyPress(unsigned char key, const PxTransform& camera)
-{
-	switch (toupper(key))
-	{
-	case 'B':	createStack(PxTransform(PxVec3(0, 0, stackZ -= 10.0f)), 10, 2.0f);						break;
-	case ' ':	createDynamic(camera, PxSphereGeometry(3.0f), camera.rotate(PxVec3(0, 0, -1)) * 200);	break;
-	}
-}*/
-
 int main()
 {
 	static const PxU32 frameCount = 600;
 	initPhysics(false);
 	for (PxU32 i = 0; i < frameCount; i++)
+		/*if (GetAsyncKeyState(0x20) & 0x8000) {
+			std::cout<<"key Pressed\n";
+			//gActors[0]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
+			//gActors[1]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
+			//gActors[2]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
+			//gActors[3]->addTorque(PxVec3(20.0f, 0.0f, 0.0f), PxForceMode::eFORCE);
+		}*/
 		stepPhysics(false);
 	cleanupPhysics(false);
 
