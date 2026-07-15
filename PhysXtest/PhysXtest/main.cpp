@@ -42,8 +42,6 @@ static void createWheel(const PxTransform& t, PxReal halfx, PxReal halfz, PxReal
 
 	wheelshape->setFlag(PxShapeFlag::eVISUALIZATION, true);
 
-	//PxShape* wheelshape = gPhysics->createShape(PxSphereGeometry(5.0f), *gMaterial);
-
 	PxVec3 wheelOffsets[4] =
 	{
 		//PxVec3(0,radius,0),
@@ -65,6 +63,7 @@ static void createWheel(const PxTransform& t, PxReal halfx, PxReal halfz, PxReal
 
 		gScene->addActor(*body);
 		gActors.pushBack(body);
+		body->setSolverIterationCounts(16, 4);
 	}
 
 	wheelshape->release();
@@ -87,11 +86,17 @@ void initPhysics(bool interactive)
 	sceneDesc.cpuDispatcher = gDispatcher;
 	sceneDesc.filterShader = PxDefaultSimulationFilterShader;
 
-	sceneDesc.solverType=PxSolverType::eTGS;
+
+
+
+	sceneDesc.solverType=PxSolverType::eTGS;//for TGS
+	sceneDesc.flags |= PxSceneFlag::eENABLE_BODY_ACCELERATIONS;//for accelerations
 	gScene = gPhysics->createScene(sceneDesc);
 
 	gScene->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0f);
 	gScene->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_SHAPES, 1.0f);
+
+
 
 	PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
 	if (pvdClient)
@@ -240,17 +245,22 @@ static PxReal GetMaxSteerAngleBySpeed(PxReal speedMps) {
 
 void UpdateVehicleFromKeyboard(float dt) {
 
-	PxReal driveTorque = 100.0f;
+	PxReal driveTorque = 200.0f;
 	const PxReal maxSpeed = 45.0f;
 
 	const PxReal maxMechanicalSteerAngle = DegToRad(45.0f);
 
 	const PxReal maxSteerRate = DegToRad(120.0f);
 
-	const PxReal steerKp = 250.0f;
-	const PxReal steerKd = 35.0f;
+	const PxReal steerKp = 100.0f;
+	const PxReal steerKd = 20.0f;
 	const PxReal maxSteerTorque = 800.0f;
 
+	const PxReal vectorKp = 40.0f;
+	const PxReal vectorKd = 20.0f;
+
+	const PxReal FRyawmomentRate = 0.5;
+	const PxReal FRRate = 0.5;
 
 	const PxVec3 wheelRollAxisLocal(1.0f, 0.0f, 0.0f);
 
@@ -370,29 +380,31 @@ void UpdateVehicleFromKeyboard(float dt) {
 
 	
 	//basic torque vectoring
-	PxReal torqueVectoringGain = 40.0f;
 	PxReal carL = 2.0f;
 	PxReal targetYawRate = forwardSpeed * std::tan(actualSteerAngle) / carL;
 	PxReal actualYawRate = chassisUp.dot(gActors[4]->getAngularVelocity());
 
 	PxReal yawError = targetYawRate - actualYawRate;
 
-	PxReal torqueCorrection = yawError * torqueVectoringGain;
+	PxReal yawAcceleration = chassisUp.dot(gActors[4]->getAngularAcceleration());
 
 
-	PxReal torqueVectoring = torqueCorrection * 0.5f;
+	PxReal torqueVectoring = vectorKp * yawError -vectorKd * yawAcceleration;
+
+	torqueVectoring = torqueVectoring * 0.5f;//radius
+	torqueVectoring = torqueVectoring / 1.0f;//x width
 
 	PxReal finaldriveTorque[4] =
 	{
-		driveTorque - torqueVectoring,
-		driveTorque + torqueVectoring,
-		driveTorque - torqueVectoring,
-		driveTorque+torqueVectoring
+		driveTorque*(1-FRRate) - torqueVectoring*(1-FRyawmomentRate),
+		driveTorque*(1-FRRate) + torqueVectoring*(1-FRyawmomentRate),
+		driveTorque*FRRate - torqueVectoring*FRyawmomentRate,
+		driveTorque*FRRate+torqueVectoring*FRyawmomentRate
 		
 	};
 	
 	//drive torque to wheel
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i <4; i++) {
 		PxTransform wheelPose = gActors[i]->getGlobalPose();
 
 		PxVec3 rollAxisWorld = wheelPose.q.rotate(wheelRollAxisLocal);
@@ -408,10 +420,12 @@ void UpdateVehicleFromKeyboard(float dt) {
 			if (wheelSpeed > stopThreshold) forwardInput = -1;
 			else if (wheelSpeed < -stopThreshold) forwardInput = 1;
 		}
-
+		//if (i == 0) std::cout << "0 speed: " << wheelSpeed << "\n";
+		//else std::cout << "1 speed: " << wheelSpeed << "\n";
 		gActors[i]->addTorque(rollAxisWorld * torqueMagnitude, PxForceMode::eFORCE);
-
+		//gActors[i]->setAngularVelocity(rollAxisWorld*20.0f);
 	}
+
 
 
 	//adtional torque correction
@@ -463,7 +477,7 @@ void cleanupPhysics(bool /*interactive*/)
 
 int main()
 {
-	static const PxU32 frameCount = 1000;
+	static const PxU32 frameCount = 600;
 	initPhysics(false);
 	for (PxU32 i = 0; i < frameCount; i++) {
 		stepPhysics(false);
