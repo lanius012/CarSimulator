@@ -21,10 +21,24 @@
     <ClCompile Include="PrimitiveRenderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PhysicsSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PhysicsRenderBridge.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimitiveMeshGenerator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="PrimitiveRenderer.h" />
+    <ClInclude Include="PhysicsSystem.h" />
+    <ClInclude Include="PrimitiveTypes.h" />
+    <ClInclude Include="PhysicsRenderBridge.h" />
+    <ClInclude Include="PrimitiveMeshGenerator.h" />
+    <ClInclude Include="VehicleInput.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Logo.png">

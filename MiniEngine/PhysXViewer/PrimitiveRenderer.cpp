@@ -8,10 +8,32 @@
 #include "CompiledShaders/PrimitiveVS.h"
 #include "CompiledShaders/PrimitivePS.h"
 
+#include "PrimitiveMeshGenerator.h"
+#include "PrimitiveTypes.h"
+
 #include <cstddef>
+#include <cstdint>
 
 using namespace Math;
 using namespace Graphics;
+
+using CoreCubeVertex =
+Graphics::Shapes::Cube::CubeVertex;
+
+static_assert(
+    sizeof(PrimitiveVertex) ==
+    sizeof(CoreCubeVertex),
+    "PrimitiveVertex and CubeVertex size mismatch.");
+
+static_assert(
+    offsetof(PrimitiveVertex, position) ==
+    offsetof(CoreCubeVertex, position),
+    "PrimitiveVertex position offset mismatch.");
+
+static_assert(
+    offsetof(PrimitiveVertex, normal) ==
+    offsetof(CoreCubeVertex, normal),
+    "PrimitiveVertex normal offset mismatch.");
 
 namespace
 {
@@ -72,9 +94,6 @@ void PrimitiveRenderer::Initialize()
     // 2. Vertex Input Layout
     //
 
-    using CubeVertex =
-        Graphics::Shapes::Cube::CubeVertex;
-
     D3D12_INPUT_ELEMENT_DESC inputLayout[] =
     {
         {
@@ -83,7 +102,9 @@ void PrimitiveRenderer::Initialize()
             DXGI_FORMAT_R32G32B32_FLOAT,
             0,
             static_cast<UINT>(
-                offsetof(CubeVertex, position)),
+                offsetof(
+                    PrimitiveVertex,
+                    position)),
             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
             0
         },
@@ -93,7 +114,9 @@ void PrimitiveRenderer::Initialize()
             DXGI_FORMAT_R32G32B32_FLOAT,
             0,
             static_cast<UINT>(
-                offsetof(CubeVertex, normal)),
+                offsetof(
+                    PrimitiveVertex,
+                    normal)),
             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
             0
         }
@@ -143,31 +166,111 @@ void PrimitiveRenderer::Initialize()
 
     m_PipelineState.Finalize();
 
+    
     //
-    // 4. MiniEngine Core에 있는 단위 Cube 생성
-    //
+// Core의 단위 Cube 초기화
+//
 
     Graphics::Shapes::Cube::InitializeCubeBuffers();
+
+    //
+    // X축 단위 Cylinder 생성
+    //
+
+    constexpr std::uint32_t cylinderSegmentCount =
+        32;
+
+    const PrimitiveMeshData cylinderMesh =
+        PrimitiveMeshGenerator::CreateCylinder(
+            cylinderSegmentCount);
+
+    if (cylinderMesh.vertices.empty() ||
+        cylinderMesh.indices.empty())
+    {
+        throw std::runtime_error(
+            "Failed to create cylinder mesh.");
+    }
+
+    m_CylinderVertexBuffer.Create(
+        L"Primitive Cylinder Vertices",
+        static_cast<std::uint32_t>(
+            cylinderMesh.vertices.size()),
+        sizeof(PrimitiveVertex),
+        cylinderMesh.vertices.data());
+
+    m_CylinderIndexBuffer.Create(
+        L"Primitive Cylinder Indices",
+        static_cast<std::uint32_t>(
+            cylinderMesh.indices.size()),
+        sizeof(std::uint16_t),
+        cylinderMesh.indices.data());
+
+    m_CylinderIndexCount =
+        static_cast<std::uint32_t>(
+            cylinderMesh.indices.size());
 }
 
 void PrimitiveRenderer::Shutdown()
 {
+    m_CylinderIndexBuffer.Destroy();
+    m_CylinderVertexBuffer.Destroy();
+
+    m_CylinderIndexCount = 0;
+
     Graphics::Shapes::Cube::DestroyCubeBuffers();
 }
 
-void PrimitiveRenderer::RenderCube(
+void PrimitiveRenderer::Render(
+    GraphicsContext& context,
+    const Camera& camera,
+    const RenderItem& renderItem)
+{
+    if (!renderItem.visible)
+    {
+        return;
+    }
+
+    switch (renderItem.type)
+    {
+    case PrimitiveType::Cube:
+        RenderCube(
+            context,
+            camera,
+            renderItem.world,
+            renderItem.color);
+        break;
+
+    case PrimitiveType::Cylinder:
+        RenderCylinder(
+            context,
+            camera,
+            renderItem.world,
+            renderItem.color);
+        break;
+
+    default:
+        break;
+    }
+}
+
+void PrimitiveRenderer::PrepareDraw(
     GraphicsContext& context,
     const Camera& camera,
     const Matrix4& worldMatrix,
     const Vector4& color)
 {
     alignas(16) VertexConstants vertexConstants;
-    vertexConstants.World = worldMatrix;
+
+    vertexConstants.World =
+        worldMatrix;
+
     vertexConstants.ViewProjection =
         camera.GetViewProjMatrix();
 
     alignas(16) PixelConstants pixelConstants;
-    pixelConstants.BaseColor = color;
+
+    pixelConstants.BaseColor =
+        color;
 
     context.SetRootSignature(
         m_RootSignature);
@@ -187,6 +290,19 @@ void PrimitiveRenderer::RenderCube(
         kPixelConstants,
         sizeof(pixelConstants),
         &pixelConstants);
+}
+
+void PrimitiveRenderer::RenderCube(
+    GraphicsContext& context,
+    const Camera& camera,
+    const Matrix4& worldMatrix,
+    const Vector4& color)
+{
+    PrepareDraw(
+        context,
+        camera,
+        worldMatrix,
+        color);
 
     context.SetVertexBuffer(
         0,
@@ -195,4 +311,34 @@ void PrimitiveRenderer::RenderCube(
 
     context.Draw(
         Graphics::Shapes::Cube::g_NumVerts);
+}
+
+void PrimitiveRenderer::RenderCylinder(
+    GraphicsContext& context,
+    const Camera& camera,
+    const Matrix4& worldMatrix,
+    const Vector4& color)
+{
+    if (m_CylinderIndexCount == 0)
+    {
+        return;
+    }
+
+    PrepareDraw(
+        context,
+        camera,
+        worldMatrix,
+        color);
+
+    context.SetVertexBuffer(
+        0,
+        m_CylinderVertexBuffer
+        .VertexBufferView());
+
+    context.SetIndexBuffer(
+        m_CylinderIndexBuffer
+        .IndexBufferView());
+
+    context.DrawIndexed(
+        m_CylinderIndexCount);
 }

@@ -12,15 +12,89 @@
 
 #include "Camera.h"
 #include "PrimitiveRenderer.h"
+#include "PhysicsSystem.h"
+
+#include "PhysicsRenderBridge.h"
+#include "PrimitiveTypes.h"
+
+#include "VehicleInput.h"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <stdexcept>
+#include <vector>
 
 using namespace GameCore;
 using namespace Graphics;
 using namespace Math;
 
+namespace
+{
+    namespace
+    {
+        VehicleInput ReadVehicleInput()
+        {
+            VehicleInput input;
+
+            const bool steerLeft =
+                GameInput::IsPressed(
+                    GameInput::kKey_a);
+
+            const bool steerRight =
+                GameInput::IsPressed(
+                    GameInput::kKey_d);
+
+            const bool driveForward =
+                GameInput::IsPressed(
+                    GameInput::kKey_w);
+
+            const bool driveReverse =
+                GameInput::IsPressed(
+                    GameInput::kKey_s);
+
+            // bool은 정수 변환 시
+            // false = 0
+            // true  = 1
+            //
+            // A만 누름:
+            // 0 - 1 = -1
+            //
+            // D만 누름:
+            // 1 - 0 = +1
+            //
+            // 둘 다 누름:
+            // 1 - 1 = 0
+            input.steer =
+                static_cast<int>(steerRight) -
+                static_cast<int>(steerLeft);
+
+            // W만 누름:
+            // 1 - 0 = +1
+            //
+            // S만 누름:
+            // 0 - 1 = -1
+            //
+            // 둘 다 누름:
+            // 1 - 1 = 0
+            input.drive =
+                static_cast<int>(driveForward) -
+                static_cast<int>(driveReverse);
+
+            // R을 누른 첫 프레임에만 true
+            input.reset =
+                GameInput::IsFirstPressed(
+                    GameInput::kKey_r);
+
+            return input;
+        }
+    }
+}
+
 class PhysXViewer : public GameCore::IGameApp
 {
 public:
-    PhysXViewer();
+    PhysXViewer()=default;
 
     virtual void Startup() override;
     virtual void Cleanup() override;
@@ -31,16 +105,27 @@ private:
     Camera m_Camera;
 
     PrimitiveRenderer m_PrimitiveRenderer;
+    PhysicsSystem m_PhysicsSystem;
+    PhysicsRenderBridge m_RenderBridge;
 
-    Matrix4 m_CubeWorld;
+    std::vector<RenderItem> m_RenderItems;
+
+    std::size_t m_GroundRenderItemIndex = 0;
+    std::size_t m_ChassisRenderItemIndex = 0;
+
+    std::array<
+        std::size_t,
+        PhysicsSystem::kWheelCount>
+        m_WheelRenderItemIndices{};
+
+    float m_PhysicsAccumulator = 0.0f;
+
+    static constexpr float kPhysicsFixedDeltaTime =
+        1.0f / 60.0f;
 };
 
 CREATE_APPLICATION(PhysXViewer)
 
-PhysXViewer::PhysXViewer()
-    : m_CubeWorld(kIdentity)
-{
-}
 
 void PhysXViewer::Startup()
 {
@@ -49,9 +134,9 @@ void PhysXViewer::Startup()
     //
 
     m_Camera.SetEyeAtUp(
-        Vector3(4.0f, 3.0f, 6.0f),  // 카메라 위치
-        Vector3(0.0f, 0.0f, 0.0f),  // 바라보는 위치
-        Vector3(0.0f, 1.0f, 0.0f)); // Up 방향
+        Vector3(8.0f, 6.0f, 12.0f),
+        Vector3(0.0f, 2.0f, 0.0f),
+        Vector3(0.0f, 1.0f, 0.0f));
 
     const float width =
         static_cast<float>(
@@ -80,26 +165,168 @@ void PhysXViewer::Startup()
 
     m_PrimitiveRenderer.Initialize();
 
-    //
-    // 3. Cube 월드 행렬
-    //
-    // 단위 행렬이므로:
-    // 위치 = 원점
-    // 회전 = 없음
-    // 크기 = 1 x 1 x 1
-    //
+    const bool physicsInitialized =
+        m_PhysicsSystem.Initialize();
 
-    m_CubeWorld = Matrix4(kIdentity);
+    if (!physicsInitialized)
+    {
+        throw std::runtime_error(
+            "PhysicsSystem initialization failed.");
+    }
+
+    m_PhysicsAccumulator = 0.0f;
+
+    m_RenderItems.clear();
+    m_RenderBridge.Clear();
+
+    // -------------------------------------------------------------
+    // Ground
+    // -------------------------------------------------------------
+
+    m_GroundRenderItemIndex =
+        m_RenderItems.size();
+
+    m_RenderItems.emplace_back(
+        PrimitiveType::Cube,
+        Vector4(
+            0.35f,
+            0.38f,
+            0.42f,
+            1.0f));
+
+    if (!m_RenderBridge.RegisterBox(
+        m_PhysicsSystem.GetGroundActor(),
+        m_PhysicsSystem.GetGroundShape(),
+        m_GroundRenderItemIndex))
+    {
+        throw std::runtime_error(
+            "Failed to register ground.");
+    }
+
+    // -------------------------------------------------------------
+    // Chassis
+    // -------------------------------------------------------------
+
+    m_ChassisRenderItemIndex =
+        m_RenderItems.size();
+
+    m_RenderItems.emplace_back(
+        PrimitiveType::Cube,
+        Vector4(
+            0.15f,
+            0.35f,
+            0.90f,
+            1.0f));
+
+    if (!m_RenderBridge.RegisterBox(
+        m_PhysicsSystem.GetChassisActor(),
+        m_PhysicsSystem.GetChassisShape(),
+        m_ChassisRenderItemIndex))
+    {
+        throw std::runtime_error(
+            "Failed to register chassis.");
+    }
+
+    // -------------------------------------------------------------
+    // Wheels
+    // -------------------------------------------------------------
+
+    for (std::size_t i = 0;
+        i < PhysicsSystem::kWheelCount;
+        ++i)
+    {
+        m_WheelRenderItemIndices[i] =
+            m_RenderItems.size();
+
+        m_RenderItems.emplace_back(
+            PrimitiveType::Cylinder,
+            Vector4(
+                0.08f,
+                0.08f,
+                0.08f,
+                1.0f));
+
+        const bool registered =
+            m_RenderBridge.RegisterCylinder(
+                m_PhysicsSystem.GetWheelActor(i),
+                m_PhysicsSystem.GetWheelShape(i),
+                m_WheelRenderItemIndices[i],
+                m_PhysicsSystem.GetWheelRadius(),
+                m_PhysicsSystem.GetWheelHalfWidth());
+
+        if (!registered)
+        {
+            throw std::runtime_error(
+                "Failed to register wheel.");
+        }
+    }
+
+    // 최초 pose를 RenderItem에 반영한다.
+    m_RenderBridge.Sync(
+        m_RenderItems);
 }
 
 void PhysXViewer::Cleanup()
 {
+    //
+    // Bridge는 PhysX actor/shape 포인터를 빌려 쓰므로
+    // PhysX 객체를 해제하기 전에 먼저 연결을 제거한다.
+    //
+
+    m_RenderBridge.Clear();
+    m_RenderItems.clear();
+
+    m_PhysicsSystem.Shutdown();
     m_PrimitiveRenderer.Shutdown();
 }
-
-void PhysXViewer::Update(float /*deltaT*/)
+void PhysXViewer::Update(float deltaT)
 {
     ScopedTimer timer(L"Update State");
+
+    //
+    // 1. 렌더 프레임에서 키 입력을 한 번 읽는다.
+    //
+
+    const VehicleInput vehicleInput =
+        ReadVehicleInput();
+
+    m_PhysicsSystem.SetVehicleInput(
+        vehicleInput);
+
+    //
+    // 2. 렌더 deltaT 제한 및 누적
+    //
+
+    const float clampedDeltaTime =
+        (std::min)(deltaT, 0.1f);
+
+    m_PhysicsAccumulator +=
+        clampedDeltaTime;
+
+    //
+    // 3. 고정 물리 스텝
+    //
+
+    while (m_PhysicsAccumulator >=
+        kPhysicsFixedDeltaTime)
+    {
+        m_PhysicsSystem.Step(
+            kPhysicsFixedDeltaTime);
+
+        m_PhysicsAccumulator -=
+            kPhysicsFixedDeltaTime;
+    }
+
+    //
+    // 4. fetchResults 이후 pose 동기화
+    //
+
+    m_RenderBridge.Sync(
+        m_RenderItems);
+
+    //
+    // 5. 카메라 갱신
+    //
 
     const float width =
         static_cast<float>(
@@ -109,15 +336,13 @@ void PhysXViewer::Update(float /*deltaT*/)
         static_cast<float>(
             g_SceneColorBuffer.GetHeight());
 
-    if (width > 0.0f && height > 0.0f)
+    if (width > 0.0f &&
+        height > 0.0f)
     {
-        // 창 크기가 바뀌어도 종횡비를 유지한다.
         m_Camera.SetAspectRatio(
             height / width);
     }
 
-    // MiniEngine Camera는 상태를 변경한 뒤
-    // 프레임마다 Update()해야 한다.
     m_Camera.Update();
 }
 
@@ -167,15 +392,15 @@ void PhysXViewer::RenderScene()
     // 4. 단위 Cube 렌더링
     //
 
-    m_PrimitiveRenderer.RenderCube(
-        context,
-        m_Camera,
-        m_CubeWorld,
-        Vector4(
-            0.15f,
-            0.60f,
-            0.95f,
-            1.0f));
+    //
+    for (const RenderItem& renderItem :
+        m_RenderItems)
+    {
+        m_PrimitiveRenderer.Render(
+            context,
+            m_Camera,
+            renderItem);
+    }
 
     context.Finish();
 }

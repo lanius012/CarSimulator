@@ -136,6 +136,12 @@ void initPhysics(bool interactive)
 	PxRigidStatic* groundSphere2 = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.5f, 0.0f, 3.0f)), PxSphereGeometry(0.4f), *gMaterial);
 	gScene->addActor(*groundSphere2);*/
 
+	/*PxRigidStatic* groundBox1 = PxCreateStatic(*gPhysics, PxTransform(PxVec3(1.0f, 0.0f, 20.0f), PxQuat(80 * PxPi / 180.0f, PxVec3(1.0f, 0.0f, 0.0f))), PxBoxGeometry(1.0f, 6.0f, 0.5f), *gMaterial);
+	gScene->addActor(*groundBox1);*/
+
+	PxRigidStatic* groundSphere1 = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f, -18.0f, 20.0f)), PxSphereGeometry(20.0f), *gMaterial);
+	gScene->addActor(*groundSphere1);
+
 	createWheel(PxTransform(PxVec3(0, 0, 0)), 0.5f, 1.0f, 0.5f, 0.35f);
 
 
@@ -246,7 +252,7 @@ static PxReal GetMaxSteerAngleBySpeed(PxReal speedMps) {
 void UpdateVehicleFromKeyboard(float dt) {
 
 	PxReal driveTorque = 200.0f;
-	const PxReal maxSpeed = 45.0f;
+	const PxReal maxSpeed = 90.0f;
 
 	const PxReal maxMechanicalSteerAngle = DegToRad(45.0f);
 
