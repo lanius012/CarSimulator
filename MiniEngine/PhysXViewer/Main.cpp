@@ -31,27 +31,28 @@ using namespace Math;
 
 namespace
 {
-    namespace
+
+    const bool kEnableMiniEngineRendering = false;
+
+    VehicleInput ReadVehicleInput()
     {
-        VehicleInput ReadVehicleInput()
-        {
-            VehicleInput input;
+        VehicleInput input;
 
-            const bool steerLeft =
-                GameInput::IsPressed(
-                    GameInput::kKey_a);
+        const bool steerLeft =
+            GameInput::IsPressed(
+                GameInput::kKey_left);
 
-            const bool steerRight =
-                GameInput::IsPressed(
-                    GameInput::kKey_d);
+        const bool steerRight =
+            GameInput::IsPressed(
+                GameInput::kKey_right);
 
-            const bool driveForward =
-                GameInput::IsPressed(
-                    GameInput::kKey_w);
+        const bool driveForward =
+            GameInput::IsPressed(
+                GameInput::kKey_up);
 
-            const bool driveReverse =
-                GameInput::IsPressed(
-                    GameInput::kKey_s);
+        const bool driveReverse =
+            GameInput::IsPressed(
+                GameInput::kKey_down);
 
             // bool은 정수 변환 시
             // false = 0
@@ -65,9 +66,9 @@ namespace
             //
             // 둘 다 누름:
             // 1 - 1 = 0
-            input.steer =
-                static_cast<int>(steerRight) -
-                static_cast<int>(steerLeft);
+        input.steer =
+            static_cast<int>(steerRight) -
+            static_cast<int>(steerLeft);
 
             // W만 누름:
             // 1 - 0 = +1
@@ -77,17 +78,16 @@ namespace
             //
             // 둘 다 누름:
             // 1 - 1 = 0
-            input.drive =
-                static_cast<int>(driveForward) -
-                static_cast<int>(driveReverse);
+        input.drive =
+            static_cast<int>(driveForward) -
+            static_cast<int>(driveReverse);
 
             // R을 누른 첫 프레임에만 true
-            input.reset =
-                GameInput::IsFirstPressed(
-                    GameInput::kKey_r);
+        input.reset =
+            GameInput::IsFirstPressed(
+                GameInput::kKey_r);
 
-            return input;
-        }
+        return input;
     }
 }
 
@@ -129,6 +129,22 @@ CREATE_APPLICATION(PhysXViewer)
 
 void PhysXViewer::Startup()
 {
+
+    const bool physicsInitialized =
+        m_PhysicsSystem.Initialize();
+
+    if (!physicsInitialized)
+    {
+        throw std::runtime_error(
+            "PhysicsSystem initialization failed.");
+    }
+
+    m_PhysicsAccumulator = 0.0f;
+
+    if (!kEnableMiniEngineRendering) {
+        return;
+    }
+
     //
     // 1. 카메라 위치 설정
     //
@@ -165,16 +181,7 @@ void PhysXViewer::Startup()
 
     m_PrimitiveRenderer.Initialize();
 
-    const bool physicsInitialized =
-        m_PhysicsSystem.Initialize();
-
-    if (!physicsInitialized)
-    {
-        throw std::runtime_error(
-            "PhysicsSystem initialization failed.");
-    }
-
-    m_PhysicsAccumulator = 0.0f;
+    
 
     m_RenderItems.clear();
     m_RenderBridge.Clear();
@@ -272,12 +279,14 @@ void PhysXViewer::Cleanup()
     // Bridge는 PhysX actor/shape 포인터를 빌려 쓰므로
     // PhysX 객체를 해제하기 전에 먼저 연결을 제거한다.
     //
-
+    
     m_RenderBridge.Clear();
     m_RenderItems.clear();
 
     m_PhysicsSystem.Shutdown();
-    m_PrimitiveRenderer.Shutdown();
+    if (kEnableMiniEngineRendering) {
+        m_PrimitiveRenderer.Shutdown();
+    }
 }
 void PhysXViewer::Update(float deltaT)
 {
@@ -317,6 +326,10 @@ void PhysXViewer::Update(float deltaT)
             kPhysicsFixedDeltaTime;
     }
 
+    if (!kEnableMiniEngineRendering) {
+        return;
+    }
+
     //
     // 4. fetchResults 이후 pose 동기화
     //
@@ -348,6 +361,11 @@ void PhysXViewer::Update(float deltaT)
 
 void PhysXViewer::RenderScene()
 {
+
+    if (!kEnableMiniEngineRendering) {
+        return;
+    }
+
     GraphicsContext& context =
         GraphicsContext::Begin(L"Scene Render");
 

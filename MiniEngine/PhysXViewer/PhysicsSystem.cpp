@@ -472,7 +472,7 @@ bool PhysicsSystem::CreateWheelJoints()
         }
 
         // 기존 프로젝트에서 계산했던 local frame을 사용한다.
-        PxTransform chassisLocalFrame=m_InitialWheelPoses[i];
+        PxTransform chassisLocalFrame(m_InitialWheelPoses[i].p.x,0.0f,m_InitialWheelPoses[i].p.z);
 
         PxTransform wheelLocalFrame(
             0.0f,0.0f,0.0f);
