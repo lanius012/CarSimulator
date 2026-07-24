@@ -25,6 +25,137 @@ public:
         
     };
 
+    struct WheelState
+    {
+        // ---------------------------------------------------------
+        // 차체에 고정된 바퀴/서스펜션 장착 위치
+        // ---------------------------------------------------------
+
+        // 차체 로컬 좌표계에서의 서스펜션 장착점
+        physx::PxVec3 mountPositionLocal{
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        // ---------------------------------------------------------
+        // Raycast 접지 정보
+        // ---------------------------------------------------------
+
+        // Ray가 유효한 지면에 닿았는가
+        bool isGrounded = false;
+
+
+        // 지면과 타이어가 만나는 월드 접촉점
+        physx::PxVec3 contactPointWorld{
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        // 접촉 지면의 월드 법선
+        physx::PxVec3 contactNormalWorld{
+            0.0f,
+            1.0f,
+            0.0f
+        };
+
+        // ---------------------------------------------------------
+        // 서스펜션 상태
+        // ---------------------------------------------------------
+
+
+        // 현재 서스펜션 길이.
+        //
+        // suspensionLength =
+        //     raycastDistance - wheelRadius
+        float suspensionLength = 0.0f;
+
+        // 서스펜션 압축 속도.
+        //
+        // 양수: 압축 중
+        // 음수: 신장 중
+        float compressionVelocity = 0.0f;
+
+
+        float suspensionForce = 0.0f;
+        // 스프링과 댐퍼로 계산한 수직하중
+        //
+        // normalLoad =
+        //     springStrength * compression
+        //   + damperRate * compressionVelocity
+        float normalLoad = 0.0f;
+
+        //종력
+        float longitudinalForce = 0.0f;
+
+        //횡력
+        float lateralForce = 0.0f;
+
+        // ---------------------------------------------------------
+        // 타이어 좌표계
+        // ---------------------------------------------------------
+
+        // 지면 접평면 위의 타이어 전방 방향
+        physx::PxVec3 longitudinalDirectionWorld{
+            0.0f,
+            0.0f,
+            1.0f
+        };
+
+        // 지면 접평면 위의 타이어 오른쪽 방향
+        physx::PxVec3 lateralDirectionWorld{
+            1.0f,
+            0.0f,
+            0.0f
+        };
+
+        // ---------------------------------------------------------
+        // 타이어 슬립 상태
+        // ---------------------------------------------------------
+
+        // 종방향 슬립비
+        float longitudinalSlip = 0.0f;
+
+        // 횡방향 슬립각, rad
+        float slipAngle = 0.0f;
+
+        // ---------------------------------------------------------
+        // 가상 바퀴 위치와 회전 상태
+        // ---------------------------------------------------------
+
+        // 렌더링과 이후 타이어 힘 계산에 사용할 바퀴 중심 위치
+        physx::PxVec3 centerPositionWorld{
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        // 해당 바퀴의 현재 조향각
+        // 후륜은 일반적으로 0
+        float steeringAngle = 0.0f;
+
+        // 바퀴 회전 각도.
+        // Actor가 없으므로 렌더링 회전을 직접 누적한다.
+        float rotationAngle = 0.0f;
+
+        // 바퀴의 선속도
+        physx::PxVec3 locallinearVelocity{
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        // 바퀴 회전 각속도 rad/s.
+        // 이후 슬립비 및 구동 토크 계산에 사용한다.
+        float angularVelocity = 0.0f;
+
+        physx::PxTransform visualPoseWorld{
+            physx::PxIdentity
+        };
+
+    };
+
 public:
     PhysicsSystem() = default;
     ~PhysicsSystem() = default;
@@ -54,13 +185,6 @@ public:
     physx::PxShape*
         GetChassisShape() const;
 
-    physx::PxRigidDynamic*
-        GetWheelActor(
-            std::size_t wheelIndex) const;
-
-    physx::PxShape*
-        GetWheelShape(
-            std::size_t wheelIndex) const;
 
     float GetWheelRadius() const
     {
@@ -70,6 +194,12 @@ public:
     float GetWheelHalfWidth() const
     {
         return m_WheelHalfWidth;
+    }
+
+    const WheelState* GetWheelState(
+        std::size_t wheelIndex) const
+    {
+        return &m_Wheels[wheelIndex];
     }
 
 private:
@@ -85,9 +215,8 @@ private:
 
     bool CreateChassis();
 
-    bool CreateWheels();
+    bool InitializeWheels();
 
-    bool CreateWheelJoints();
 
     // ---------------------------------------------------------
     // 차량 제어
@@ -100,6 +229,20 @@ private:
         float fixedDeltaTime);
 
     void ApplyDrive(
+        float fixedDeltaTime);
+
+    void RayCasting();
+
+    void CylinderSweep();
+
+    void CalculateNormalLoads();
+
+    void CalculateTireForces(
+        float fixedDeltaTime);
+
+    void ApplyWheelForces();
+
+    void UpdateWheelRotation(
         float fixedDeltaTime);
 
 
@@ -167,20 +310,11 @@ private:
 
     physx::PxRigidDynamic* m_Chassis = nullptr;
     physx::PxShape* m_ChassisShape = nullptr;
+    float m_ChassisMass = 800.f;
 
     std::array<
-        physx::PxRigidDynamic*,
+        WheelState,
         kWheelCount> m_Wheels{};
-
-    std::array<
-        physx::PxShape*,
-        kWheelCount> m_WheelShapes{};
-
-    std::array<
-        physx::PxD6Joint*,
-        kWheelCount> m_WheelJoints{};
-
-    physx::PxD6Joint* m_FrontSteeringLinkJoint = nullptr;
 
     // ---------------------------------------------------------
     // 차량 크기
@@ -192,9 +326,36 @@ private:
         0.05f,
         1.0f
     };
+    // ---------------------------------------------------------
+    // 바퀴 형상
+    // ---------------------------------------------------------
 
     float m_WheelRadius = 0.5f;
     float m_WheelHalfWidth = 0.15f;
+
+    // ---------------------------------------------------------
+    // 서스펜션 설정
+    // ---------------------------------------------------------
+
+    // spring의 일반상태와 평형상태의 길이차
+    float m_SuspensionRestLengthDelta = 0.1f;
+
+    // Raycast로 허용하는 최대 서스펜션 길이
+    float m_SuspensionMaxLength = 0.4f;
+
+    // Raycast 최대 길이
+    float m_maxRaycastDistance = m_WheelRadius + m_SuspensionMaxLength;
+
+    // N/m
+    float m_SuspensionSpringStrength = 20000.0f;
+
+    // N·s/m
+    float m_SuspensionDamperRate = 2500.0f;
+
+    // 계산 폭주를 막기 위한 선택적 상한
+    float m_MaxSuspensionForce = 100000.0f;
+    
+    float m_staticnormalLoad = m_ChassisMass * 9.81f / 4;
 
     // ---------------------------------------------------------
     // 초기 pose
@@ -253,4 +414,67 @@ private:
     // 0.15 = 약한 엔진 브레이크
     // 1.0 = 기존 코드가 의도했던 강한 감속
     float m_CoastTorqueRate = 0.15f;
+
+    // ---------------------------------------------------------
+    // 타이어 힘 모델
+    // ---------------------------------------------------------
+
+    // 기준 하중에서의 종방향 강성
+    //
+    // 단위:
+    // N / slip ratio
+    //
+    // slip ratio가 0.1이고 하중이 기준 하중과 같으면
+    // 약 800 N의 종력이 발생한다.
+    float m_LongitudinalStiffness = 2000.0f;
+
+    // 기준 하중에서의 코너링 강성
+    //
+    // 단위:
+    // N / rad
+    //
+    // slip angle이 약 5도라면
+    // 15000 * 0.087 ≒ 1300 N
+    float m_LateralStiffness = 3000.0f;
+
+    // 타이어와 지면 사이의 마찰계수
+    float m_TireFrictionCoefficient = 1.0f;
+
+    // 저속에서 슬립 계산의 분모가 0에 가까워지는 것을 방지
+    float m_MinSlipSpeed = 0.5f;
+
+    // 선형 모델에 지나치게 큰 슬립이 들어오는 것을 방지
+    float m_MaxSlipRatio = 1.0f;
+
+    // 최대 45도까지만 선형 슬립각 계산에 사용
+    float m_MaxSlipAngle =
+        physx::PxPi / 4.0f;
+
+    // ---------------------------------------------------------
+// 가상 바퀴 회전 동역학
+// ---------------------------------------------------------
+
+// 바퀴 회전관성, kg·m²
+    float m_WheelMomentOfInertia =
+        2.5f;
+
+    // drive == 0일 때 바퀴를 멈추는 브레이크 토크
+    float m_BrakeTorque =
+        300.0f;
+
+    // 베어링 및 구동계 저항의 단순 근사
+    float m_WheelAngularResistance =
+        0.25f;
+
+    // 최대 바퀴 각속도, rad/s
+//
+// 최대 차량 속도에 맞추려면:
+// maxWheelAngularVelocity = maxVehicleSpeed / wheelRadius
+    float m_MaxWheelAngularVelocity =
+        m_MaxVehicleSpeed / m_WheelRadius;
+
+    // 입력 중 바퀴 각속도가 변하는 속도
+    // 단위: rad/s²
+    float m_WheelAngularAcceleration =
+        20.0f;
 };

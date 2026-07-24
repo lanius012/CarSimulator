@@ -32,7 +32,7 @@ using namespace Math;
 namespace
 {
 
-    const bool kEnableMiniEngineRendering = false;
+    const bool kEnableMiniEngineRendering = true;
 
     VehicleInput ReadVehicleInput()
     {
@@ -103,6 +103,10 @@ public:
 
 private:
     Camera m_Camera;
+
+    Vector3 m_CameraEye = Vector3(0.0f, 0.0f, 0.0f);
+    Vector3 m_CameraTarget = Vector3(0.0f, 0.0f, 0.0f);
+    bool m_CameraInitialized = false;
 
     PrimitiveRenderer m_PrimitiveRenderer;
     PhysicsSystem m_PhysicsSystem;
@@ -199,7 +203,7 @@ void PhysXViewer::Startup()
             0.35f,
             0.38f,
             0.42f,
-            1.0f));
+            2.0f));
 
     if (!m_RenderBridge.RegisterBox(
         m_PhysicsSystem.GetGroundActor(),
@@ -253,10 +257,18 @@ void PhysXViewer::Startup()
                 0.08f,
                 1.0f));
 
+        const PhysicsSystem::WheelState* wheelState =
+            m_PhysicsSystem.GetWheelState(i);
+
+        if (wheelState == nullptr)
+        {
+            throw std::runtime_error(
+                "Failed to get wheel state.");
+        }
+
         const bool registered =
-            m_RenderBridge.RegisterCylinder(
-                m_PhysicsSystem.GetWheelActor(i),
-                m_PhysicsSystem.GetWheelShape(i),
+            m_RenderBridge.RegisterPoseCylinder(
+                &wheelState->visualPoseWorld,
                 m_WheelRenderItemIndices[i],
                 m_PhysicsSystem.GetWheelRadius(),
                 m_PhysicsSystem.GetWheelHalfWidth());
@@ -264,7 +276,7 @@ void PhysXViewer::Startup()
         if (!registered)
         {
             throw std::runtime_error(
-                "Failed to register wheel.");
+                "Failed to register virtual wheel.");
         }
     }
 
@@ -279,14 +291,16 @@ void PhysXViewer::Cleanup()
     // Bridge는 PhysX actor/shape 포인터를 빌려 쓰므로
     // PhysX 객체를 해제하기 전에 먼저 연결을 제거한다.
     //
-    
+
     m_RenderBridge.Clear();
     m_RenderItems.clear();
 
     m_PhysicsSystem.Shutdown();
-    if (kEnableMiniEngineRendering) {
-        m_PrimitiveRenderer.Shutdown();
+    if (!kEnableMiniEngineRendering) {
+        return;
     }
+
+    m_PrimitiveRenderer.Shutdown();
 }
 void PhysXViewer::Update(float deltaT)
 {
@@ -338,8 +352,99 @@ void PhysXViewer::Update(float deltaT)
         m_RenderItems);
 
     //
-    // 5. 카메라 갱신
-    //
+// 5. 카메라 갱신
+//
+
+    physx::PxRigidDynamic* chassis =
+        m_PhysicsSystem.GetChassisActor();
+
+    if (chassis != nullptr)
+    {
+        const physx::PxTransform chassisPose =
+            chassis->getGlobalPose();
+
+        const physx::PxVec3 worldUp(
+            0.0f,
+            1.0f,
+            0.0f);
+
+        physx::PxVec3 flatForward =
+            chassisPose.q.rotate(
+                physx::PxVec3(
+                    0.0f,
+                    0.0f,
+                    1.0f));
+
+        // 카메라가 롤/피치에 과하게 끌려가지 않도록
+        // 수평 성분만 사용
+        flatForward.y = 0.0f;
+
+        if (flatForward.magnitudeSquared() < 1.0e-6f)
+        {
+            flatForward =
+                physx::PxVec3(
+                    0.0f,
+                    0.0f,
+                    1.0f);
+        }
+        else
+        {
+            flatForward.normalize();
+        }
+
+        const physx::PxVec3 chassisPosition =
+            chassisPose.p;
+
+        constexpr float cameraDistance = 7.0f;
+        constexpr float cameraHeight = 2.8f;
+        constexpr float lookAheadDistance = 3.0f;
+        constexpr float targetHeight = 1.0f;
+
+        const physx::PxVec3 desiredEyePx =
+            chassisPosition
+            - flatForward * cameraDistance
+            + worldUp * cameraHeight;
+
+        const physx::PxVec3 desiredTargetPx =
+            chassisPosition
+            + flatForward * lookAheadDistance
+            + worldUp * targetHeight;
+
+        const Vector3 desiredEye(
+            desiredEyePx.x,
+            desiredEyePx.y,
+            desiredEyePx.z);
+
+        const Vector3 desiredTarget(
+            desiredTargetPx.x,
+            desiredTargetPx.y,
+            desiredTargetPx.z);
+
+        if (!m_CameraInitialized)
+        {
+            m_CameraEye = desiredEye;
+            m_CameraTarget = desiredTarget;
+            m_CameraInitialized = true;
+        }
+        else
+        {
+            const float followT =
+                (std::min)(
+                    6.0f * clampedDeltaTime,
+                    1.0f);
+
+            m_CameraEye +=
+                (desiredEye - m_CameraEye) * followT;
+
+            m_CameraTarget +=
+                (desiredTarget - m_CameraTarget) * followT;
+        }
+
+        m_Camera.SetEyeAtUp(
+            m_CameraEye,
+            m_CameraTarget,
+            Vector3(0.0f, 1.0f, 0.0f));
+    }
 
     const float width =
         static_cast<float>(

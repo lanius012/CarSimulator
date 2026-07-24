@@ -6,34 +6,66 @@
 using namespace physx;
 using namespace Math;
 
-bool PhysicsRenderBridge::RegisterBinding(
+bool PhysicsRenderBridge::IsValidScale(
+    const PxVec3& scale)
+{
+    return scale.isFinite() &&
+        scale.x > 0.0f &&
+        scale.y > 0.0f &&
+        scale.z > 0.0f;
+}
+
+bool PhysicsRenderBridge::RegisterActorShapeBinding(
     PxRigidActor* actor,
     PxShape* shape,
     std::size_t renderItemIndex,
     const PxTransform& visualLocalPose,
     const PxVec3& visualScale)
 {
-    if (actor == nullptr || shape == nullptr)
-    {
-        return false;
-    }
-
-    if (!visualLocalPose.isValid())
-    {
-        return false;
-    }
-
-    if (visualScale.x <= 0.0f ||
-        visualScale.y <= 0.0f ||
-        visualScale.z <= 0.0f)
+    if (actor == nullptr ||
+        shape == nullptr ||
+        !visualLocalPose.isValid() ||
+        !IsValidScale(visualScale))
     {
         return false;
     }
 
     Binding binding;
 
+    binding.poseSource =
+        PoseSource::ActorShape;
+
     binding.actor = actor;
     binding.shape = shape;
+    binding.renderItemIndex = renderItemIndex;
+    binding.visualLocalPose = visualLocalPose;
+    binding.visualScale = visualScale;
+
+    m_Bindings.push_back(binding);
+
+    return true;
+}
+
+bool PhysicsRenderBridge::RegisterExternalTransformBinding(
+    const PxTransform* worldPose,
+    std::size_t renderItemIndex,
+    const PxTransform& visualLocalPose,
+    const PxVec3& visualScale)
+{
+    if (worldPose == nullptr ||
+        !worldPose->isValid() ||
+        !visualLocalPose.isValid() ||
+        !IsValidScale(visualScale))
+    {
+        return false;
+    }
+
+    Binding binding;
+
+    binding.poseSource =
+        PoseSource::ExternalTransform;
+
+    binding.externalWorldPose = worldPose;
     binding.renderItemIndex = renderItemIndex;
     binding.visualLocalPose = visualLocalPose;
     binding.visualScale = visualScale;
@@ -73,7 +105,7 @@ bool PhysicsRenderBridge::RegisterBox(
         boxGeometry.halfExtents.y * 2.0f,
         boxGeometry.halfExtents.z * 2.0f);
 
-    return RegisterBinding(
+    return RegisterActorShapeBinding(
         actor,
         shape,
         renderItemIndex,
@@ -81,38 +113,29 @@ bool PhysicsRenderBridge::RegisterBox(
         visualScale);
 }
 
-bool PhysicsRenderBridge::RegisterCylinder(
-    PxRigidActor* actor,
-    PxShape* shape,
+bool PhysicsRenderBridge::RegisterPoseCylinder(
+    const PxTransform* worldPose,
     std::size_t renderItemIndex,
     float radius,
     float halfWidth,
     const PxTransform& visualAxisCorrection)
 {
-    if (radius <= 0.0f || halfWidth <= 0.0f)
+    if (radius <= 0.0f ||
+        halfWidth <= 0.0f)
     {
         return false;
     }
 
-    // 현재 Unit Cylinder 규격:
-    //
-    // 중심축: X
-    // X 전체 길이: 1
-    // Y/Z 반지름: 1
-    //
-    // 실제 바퀴 크기로 만들기 위한 스케일:
-    //
-    // X = 전체 폭 = 2 * halfWidth
-    // Y = radius
-    // Z = radius
+    // Unit Cylinder:
+    // X축 전체 길이 1
+    // Y/Z축 반지름 1
     const PxVec3 visualScale(
         halfWidth * 2.0f,
         radius,
         radius);
 
-    return RegisterBinding(
-        actor,
-        shape,
+    return RegisterExternalTransformBinding(
+        worldPose,
         renderItemIndex,
         visualAxisCorrection,
         visualScale);
@@ -123,49 +146,71 @@ void PhysicsRenderBridge::Sync(
 {
     for (const Binding& binding : m_Bindings)
     {
-        if (binding.actor == nullptr ||
-            binding.shape == nullptr)
-        {
-            continue;
-        }
-
         if (binding.renderItemIndex >=
             renderItems.size())
         {
             continue;
         }
 
-        //
-        // Actor의 월드 pose
-        //
+        PxTransform visualWorldPose(
+            PxIdentity);
 
-        const PxTransform actorWorldPose =
-            binding.actor->getGlobalPose();
+        bool hasValidPose = false;
 
-        //
-        // Shape는 Actor 중심과 다르게 배치될 수 있다.
-        //
-        // 예:
-        // 차체 Actor 하나에 범퍼 Shape가 앞쪽으로 이동되어 부착된 경우
-        //
+        switch (binding.poseSource)
+        {
+        case PoseSource::ActorShape:
+        {
+            if (binding.actor == nullptr ||
+                binding.shape == nullptr)
+            {
+                break;
+            }
 
-        const PxTransform shapeLocalPose =
-            binding.shape->getLocalPose();
+            const PxTransform actorWorldPose =
+                binding.actor->getGlobalPose();
 
-        //
-        // 최종 시각적 pose:
-        //
-        // Actor world
-        // × Shape local
-        // × 렌더 축 보정
-        //
+            const PxTransform shapeLocalPose =
+                binding.shape->getLocalPose();
 
-        const PxTransform visualWorldPose =
-            actorWorldPose *
-            shapeLocalPose *
-            binding.visualLocalPose;
+            visualWorldPose =
+                actorWorldPose *
+                shapeLocalPose *
+                binding.visualLocalPose;
 
-        renderItems[binding.renderItemIndex].world =
+            hasValidPose =
+                visualWorldPose.isValid();
+
+            break;
+        }
+
+        case PoseSource::ExternalTransform:
+        {
+            if (binding.externalWorldPose == nullptr ||
+                !binding.externalWorldPose->isValid())
+            {
+                break;
+            }
+
+            visualWorldPose =
+                *binding.externalWorldPose *
+                binding.visualLocalPose;
+
+            hasValidPose =
+                visualWorldPose.isValid();
+
+            break;
+        }
+        }
+
+        if (!hasValidPose)
+        {
+            continue;
+        }
+
+        renderItems[
+            binding.renderItemIndex
+        ].world =
             BuildWorldMatrix(
                 visualWorldPose,
                 binding.visualScale);

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PhysicsSystem.h"
 
+#include <iostream>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -10,6 +11,29 @@ using namespace physx;
 
 namespace
 {
+
+    void DebugPrint(
+        const char* format,
+        ...)
+    {
+        char buffer[1024];
+
+        va_list arguments;
+        va_start(arguments, format);
+
+        _vsnprintf_s(
+            buffer,
+            sizeof(buffer),
+            _TRUNCATE,
+            format,
+            arguments);
+
+        va_end(arguments);
+
+        OutputDebugStringA(buffer);
+    }
+
+
     // PhysX의 PxBoxGeometry는 전체 크기가 아니라 half extents를 사용한다.
     constexpr float kGroundHalfWidth = 10.0f;
     constexpr float kGroundHalfHeight = 0.25f;
@@ -244,9 +268,9 @@ bool PhysicsSystem::CreateGround()
     }
 
     const PxVec3 groundHalfExtents(
-        10.0f,
+        1000.0f,
         0.25f,
-        10.0f);
+        1000.0f);
 
     const PxTransform groundPose(
         PxVec3(
@@ -317,22 +341,12 @@ bool PhysicsSystem::CreateChassis()
             *m_Material,
             1.0f);
 
-    PxRigidBodyExt::updateMassAndInertia(*m_Chassis, 800.0f);
+    PxRigidBodyExt::setMassAndUpdateInertia(*m_Chassis, m_ChassisMass);
 
     if (m_Chassis == nullptr)
     {
         return false;
     }
-
-    // 기존 코드의 질량 및 관성 설정을 그대로 이식
-    //
-    // m_Chassis->setMass(...);
-    // m_Chassis->setMassSpaceInertiaTensor(...);
-    // m_Chassis->setCMassLocalPose(...);
-
-    // 기존 solver 설정
-    //
-    // m_Chassis->setSolverIterationCounts(16, 4);
 
     if (m_Chassis->getNbShapes() == 0)
     {
@@ -351,8 +365,6 @@ bool PhysicsSystem::CreateChassis()
     m_ChassisShape =
         chassisShape;
 
-    m_ChassisShape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, false);
-    m_ChassisShape->setFlag(PxShapeFlag::eSCENE_QUERY_SHAPE, false);
 
     m_Scene->addActor(
         *m_Chassis);
@@ -360,177 +372,54 @@ bool PhysicsSystem::CreateChassis()
     return true;
 }
 
-bool PhysicsSystem::CreateWheels()
+bool PhysicsSystem::InitializeWheels()
 {
-    using namespace physx;
 
-    if (m_Physics == nullptr ||
-        m_Scene == nullptr ||
-        m_Material == nullptr)
-    {
+    if (m_Chassis == nullptr) {
         return false;
     }
 
-    // 이 값들은 기존 프로젝트의 실제 초기 위치로 교체한다.
     const std::array<PxVec3, kWheelCount>
-        initialWheelPositions =
+        mountPositionsLocal =
     {
-        PxVec3(-m_ChassisHalfExtents.x, m_WheelRadius, -m_ChassisHalfExtents.z),
-        PxVec3(+m_ChassisHalfExtents.x, m_WheelRadius, -m_ChassisHalfExtents.z),
-        PxVec3(-m_ChassisHalfExtents.x, m_WheelRadius, +m_ChassisHalfExtents.z),
-        PxVec3(+m_ChassisHalfExtents.x, m_WheelRadius, +m_ChassisHalfExtents.z)
+        // RearLeft
+        PxVec3(
+            -m_ChassisHalfExtents.x,
+            0.0f,
+            -m_ChassisHalfExtents.z),
+
+        // RearRight
+        PxVec3(
+            +m_ChassisHalfExtents.x,
+            0.0f,
+            -m_ChassisHalfExtents.z),
+
+        // FrontLeft
+        PxVec3(
+            -m_ChassisHalfExtents.x,
+            0.0f,
+            +m_ChassisHalfExtents.z),
+
+        // FrontRight
+        PxVec3(
+            +m_ChassisHalfExtents.x,
+            0.0f,
+            +m_ChassisHalfExtents.z)
     };
 
-    for (std::size_t i = 0;
-        i < kWheelCount;
-        ++i)
-    {
-        m_InitialWheelPoses[i] =
-            PxTransform(
-                initialWheelPositions[i]);
+    const PxTransform chassisPose =
+        m_Chassis->getGlobalPose();
 
-        // -----------------------------------------------------
-        // 이 부분을 기존 바퀴 생성 코드로 교체
-        // -----------------------------------------------------
-        //
-        // CylinderCallbacks
-        // CustomGeometry
-        // PxConvexMeshGeometry
-        // 기존 32각기둥
-        //
-        // 어떤 방식이든 그대로 사용할 수 있다.
+    for (std::size_t i = 0; i < kWheelCount; ++i) {
 
-        PxCustomGeometryExt::CylinderCallbacks* cylinder = new PxCustomGeometryExt::CylinderCallbacks(m_WheelHalfWidth, m_WheelRadius);
+        m_Wheels[i] = WheelState{};
 
-        PxRigidDynamic* wheel =
-            m_Physics->createRigidDynamic(PxTransform(m_InitialWheelPoses[i]));
 
-        PxShape* wheelShape =
-            m_Physics->createShape(PxCustomGeometry(*cylinder), *m_Material);
-
-        wheel->attachShape(*wheelShape);
-
-        // 예:
-        //
-        // wheel = m_Physics->createRigidDynamic(...);
-        // wheelShape = m_Physics->createShape(...);
-        // wheel->attachShape(*wheelShape);
-        // wheelShape->release();
-
-        if (wheel == nullptr ||
-            wheelShape == nullptr)
-        {
-            return false;
-        }
-
-        // 기존 코드의 질량, 관성, 감쇠, solver 설정
-        //
-        // wheel->setMass(30.0f);
-        // wheel->setMassSpaceInertiaTensor(...);
-        // wheel->setSolverIterationCounts(16, 4);
-        // wheel->setAngularDamping(...);
-
-        PxRigidBodyExt::updateMassAndInertia(*wheel, 30.0f);
-
-        wheel->setSolverIterationCounts(16, 4);
-
-        m_Wheels[i] =
-            wheel;
-
-        m_WheelShapes[i] =
-            wheelShape;
-
-        m_Scene->addActor(
-            *m_Wheels[i]);
-
-        wheelShape->release();
+        m_Wheels[i].mountPositionLocal = mountPositionsLocal[i];
+        m_Wheels[i].centerPositionWorld =
+            chassisPose.transform(
+                m_Wheels[i].mountPositionLocal);
     }
-
-    return true;
-}
-
-bool PhysicsSystem::CreateWheelJoints()
-{
-    using namespace physx;
-
-    if (m_Physics == nullptr ||
-        m_Chassis == nullptr)
-    {
-        return false;
-    }
-
-    PxJointLinearLimitPair ylimit(m_Physics->getTolerancesScale(), -0.3f, 0.3f);
-    PxD6JointDrive drive(1000.0f, 100.0f, PX_MAX_F32, true);
-
-    for (std::size_t i = 0;
-        i < kWheelCount;
-        ++i)
-    {
-        if (m_Wheels[i] == nullptr)
-        {
-            return false;
-        }
-
-        // 기존 프로젝트에서 계산했던 local frame을 사용한다.
-        PxTransform chassisLocalFrame(m_InitialWheelPoses[i].p.x,0.0f,m_InitialWheelPoses[i].p.z);
-
-        PxTransform wheelLocalFrame(
-            0.0f,0.0f,0.0f);
-
-        // 예:
-        //
-        // chassisLocalFrame =
-        //     PxTransform(chassisLocalAnchor[i]);
-        //
-        // wheelLocalFrame =
-        //     PxTransform(wheelLocalAnchor);
-
-        m_WheelJoints[i] =
-            PxD6JointCreate(
-                *m_Physics,
-                m_Chassis,
-                chassisLocalFrame,
-                m_Wheels[i],
-                wheelLocalFrame);
-
-        if (m_WheelJoints[i] == nullptr)
-        {
-            return false;
-        }
-
-        // 아래에는 기존 D6 설정을 그대로 이동한다.
-        //
-        // m_WheelJoints[i]->setMotion(
-        //     PxD6Axis::eTWIST,
-        //     PxD6Motion::eFREE);
-        //
-        // m_WheelJoints[i]->setMotion(
-        //     PxD6Axis::eSWING1,
-        //     PxD6Motion::eLIMITED);
-        //
-        // m_WheelJoints[i]->setMotion(
-        //     PxD6Axis::eSWING2,
-        //     PxD6Motion::eLOCKED);
-        //
-        // m_WheelJoints[i]->setTwistLimit(...);
-        // m_WheelJoints[i]->setSwingLimit(...);
-        // m_WheelJoints[i]->setDrive(...);
-
-        m_WheelJoints[i]->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
-        if (i>=2) m_WheelJoints[i]->setMotion(PxD6Axis::eSWING1, PxD6Motion::eFREE);
-        m_WheelJoints[i]->setMotion(PxD6Axis::eY, PxD6Motion::eLIMITED);
-        m_WheelJoints[i]->setLinearLimit(PxD6Axis::eY, ylimit);
-        m_WheelJoints[i]->setDrive(PxD6Drive::eY, drive);
-
-    }
-
-    m_FrontSteeringLinkJoint =
-        PxD6JointCreate(*m_Physics, m_Wheels[2], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)), m_Wheels[3], PxTransform(PxVec3(0.0f, 0.0f, 0.0f)));
-    m_FrontSteeringLinkJoint->setMotion(PxD6Axis::eTWIST, PxD6Motion::eFREE);
-    m_FrontSteeringLinkJoint->setMotion(PxD6Axis::eSWING2, PxD6Motion::eFREE);
-    m_FrontSteeringLinkJoint->setMotion(PxD6Axis::eX, PxD6Motion::eFREE);
-    m_FrontSteeringLinkJoint->setMotion(PxD6Axis::eY, PxD6Motion::eFREE);
-    m_FrontSteeringLinkJoint->setMotion(PxD6Axis::eZ, PxD6Motion::eFREE);
 
     return true;
 }
@@ -543,15 +432,10 @@ bool PhysicsSystem::CreateVehicle()
         return false;
     }
 
-    if (!CreateWheels())
-    {
+    if (!InitializeWheels()) {
         return false;
     }
 
-    if (!CreateWheelJoints())
-    {
-        return false;
-    }
 
     return true;
 }
@@ -614,14 +498,6 @@ void PhysicsSystem::ApplySteering(
         chassisPose.q.rotate(
             PxVec3(0.0f, 0.0f, 1.0f));
 
-    const PxVec3 chassisRight =
-        chassisPose.q.rotate(
-            PxVec3(1.0f, 0.0f, 0.0f));
-
-    const PxVec3 chassisUp =
-        chassisPose.q.rotate(
-            PxVec3(0.0f, 1.0f, 0.0f));
-
     const float forwardSpeed =
         m_Chassis->getLinearVelocity()
         .dot(chassisForward);
@@ -668,89 +544,11 @@ void PhysicsSystem::ApplySteering(
             m_TargetSteeringAngle,
             -maxAllowedSteeringAngle,
             maxAllowedSteeringAngle);
+    
+    m_Wheels[FrontLeft].steeringAngle = m_TargetSteeringAngle;
+    m_Wheels[FrontRight].steeringAngle = m_TargetSteeringAngle;
 
-    const PxQuat desiredSteeringRotation(
-        m_TargetSteeringAngle,
-        chassisUp);
 
-    const PxVec3 desiredWheelRight =
-        desiredSteeringRotation.rotate(
-            chassisRight);
-
-    const PxVec3 chassisAngularVelocity =
-        m_Chassis->getAngularVelocity();
-
-    const std::array<std::size_t, 2>
-        frontWheelIndices =
-    {
-        FrontLeft,
-        FrontRight
-    };
-
-    for (const std::size_t wheelIndex :
-    frontWheelIndices)
-    {
-        PxRigidDynamic* wheel =
-            m_Wheels[wheelIndex];
-
-        if (wheel == nullptr)
-        {
-            continue;
-        }
-
-        const PxTransform wheelPose =
-            wheel->getGlobalPose();
-
-        const PxVec3 currentWheelRight =
-            wheelPose.q.rotate(
-                PxVec3(1.0f, 0.0f, 0.0f));
-
-        /*
-         * 현재 wheel right에서 desired wheel right까지
-         * chassisUp 축을 중심으로 얼마나 회전해야 하는지 계산한다.
-         */
-        const float sinValue =
-            chassisUp.dot(
-                currentWheelRight.cross(
-                    desiredWheelRight));
-
-        const float cosValue =
-            PxClamp(
-                currentWheelRight.dot(
-                    desiredWheelRight),
-                -1.0f,
-                1.0f);
-
-        const float angleError =
-            std::atan2(
-                sinValue,
-                cosValue);
-
-        // 바퀴의 차체 대비 상대 조향 각속도
-        const PxVec3 relativeAngularVelocity =
-            wheel->getAngularVelocity() -
-            chassisAngularVelocity;
-
-        const float steeringAngularVelocity =
-            relativeAngularVelocity.dot(
-                chassisUp);
-
-        // PD 조향 제어
-        float steeringTorque =
-            m_SteerKp * angleError -
-            m_SteerKd *
-            steeringAngularVelocity;
-
-        steeringTorque =
-            PxClamp(
-                steeringTorque,
-                -m_MaxSteerTorque,
-                m_MaxSteerTorque);
-
-        wheel->addTorque(
-            chassisUp * steeringTorque,
-            PxForceMode::eFORCE);
-    }
 }
 
 void PhysicsSystem::ApplyDrive(
@@ -762,249 +560,308 @@ void PhysicsSystem::ApplyDrive(
         return;
     }
 
-    const PxTransform chassisPose =
-        m_Chassis->getGlobalPose();
+    const float driveInput = PxClamp(m_VehicleInput.drive, -1, 1);
 
-    const PxVec3 chassisForward =
-        chassisPose.q.rotate(
-            PxVec3(0.0f, 0.0f, 1.0f));
+    const float targetAngularVelocity = driveInput * m_MaxWheelAngularVelocity;
 
-    const PxVec3 chassisUp =
-        chassisPose.q.rotate(
-            PxVec3(0.0f, 1.0f, 0.0f));
+    const float maximumAngularVelocityChange = m_WheelAngularAcceleration * fixedDeltaTime;
 
-    const float forwardSpeed =
-        m_Chassis->getLinearVelocity()
-        .dot(chassisForward);
+    for (WheelState& wheel : m_Wheels) {
+        wheel.angularVelocity =
+            MoveToward(
+                wheel.angularVelocity,
+                targetAngularVelocity,
+                maximumAngularVelocityChange);
 
-    // ---------------------------------------------------------
-    // 1. 속도 제한
-    // ---------------------------------------------------------
+        const float reactionAngularVelocityChange = m_WheelAngularResistance * PxAbs(wheel.angularVelocity) * fixedDeltaTime;
 
-    const float absoluteForwardSpeed =
-        std::abs(forwardSpeed);
+        wheel.angularVelocity=MoveToward(wheel.angularVelocity, 0.0f, reactionAngularVelocityChange);
+    }
+}
 
-    const float speedRatio =
-        absoluteForwardSpeed /
-        m_MaxVehicleSpeed;
+void PhysicsSystem::RayCasting() {
 
-    /*
-     * 기존 식:
-     *
-     * 1 - (v / maxSpeed)^2
-     *
-     * 기존 코드는 maxSpeed를 넘으면 음수가 되어
-     * 반대 방향 토크가 생길 수 있으므로 0~1로 clamp한다.
-     */
-    const float torqueScale =
-        PxClamp(
-            1.0f -
-            speedRatio * speedRatio,
-            0.0f,
-            1.0f);
+    PxTransform chassisPose = m_Chassis->getGlobalPose();
+    PxVec3 chassisDown = chassisPose.q.rotate(PxVec3(0.0f, -1.0f, 0.0f));
+    
 
-    const float scaledDriveTorque =
-        m_DriveTorque *
-        torqueScale;
+    for (std::size_t i = 0; i < kWheelCount; ++i) {
 
-    // ---------------------------------------------------------
-    // 2. 목표 yaw rate 계산
-    // ---------------------------------------------------------
+        WheelState *wheel = &m_Wheels[i];
 
-    const float wheelBase =
-        m_ChassisHalfExtents.z * 2.0f;
+        PxVec3 mountPositionWorld = chassisPose.transform(wheel->mountPositionLocal);
 
-    const float trackWidth =
-        m_ChassisHalfExtents.x * 2.0f;
+        physx::PxRaycastBuffer hitBuffer;
 
-    float targetYawRate = 0.0f;
+        bool hasHit = m_Scene->raycast(
+            mountPositionWorld,
+            chassisDown,
+            m_maxRaycastDistance,
+            hitBuffer,
+            PxHitFlag::ePOSITION|PxHitFlag::eNORMAL,
+            PxQueryFilterData(PxQueryFlag::eSTATIC)
+        );
 
-    if (wheelBase > 0.0001f)
-    {
-        targetYawRate =
-            forwardSpeed *
-            std::tan(
-                m_TargetSteeringAngle) /
-            wheelBase;
+        if (hasHit && hitBuffer.hasBlock) {
+
+            wheel->isGrounded = true;
+
+            const physx::PxRaycastHit& hit = hitBuffer.block;
+            wheel->contactPointWorld = hit.position;
+            wheel->contactNormalWorld = hit.normal;
+
+            wheel->suspensionLength =
+                -PxClamp(
+                    hit.distance - m_WheelRadius,
+                    -m_SuspensionMaxLength,
+                    m_SuspensionMaxLength
+                );
+        }
+        else {
+            wheel->isGrounded = false;
+            wheel->suspensionLength = m_SuspensionRestLengthDelta;
+        }
     }
 
-    const float actualYawRate =
-        chassisUp.dot(
-            m_Chassis->getAngularVelocity());
 
-    const float yawError =
-        targetYawRate -
-        actualYawRate;
+}
 
-    /*
-     * eENABLE_BODY_ACCELERATIONS가 Scene에 설정되어 있으므로
-     * 이전 물리 스텝에서 계산된 각가속도를 읽을 수 있다.
-     */
-    const float yawAcceleration =
-        chassisUp.dot(
-            m_Chassis->getAngularAcceleration());
+void PhysicsSystem::CylinderSweep() {
 
-    // ---------------------------------------------------------
-    // 3. PD 토크 벡터링
-    // ---------------------------------------------------------
+    PxTransform chassisPose = m_Chassis->getGlobalPose();
+    PxVec3 chassisDown = chassisPose.q.rotate(PxVec3(0.0f, -1.0f, 0.0f));
 
-    float torqueVectoring =
-        m_VectorKp * yawError -
-        m_VectorKd * yawAcceleration;
+    const PxConvexCore::Cylinder wheelCylinderCore(
+        m_WheelHalfWidth,
+        m_WheelRadius);
 
-    /*
-     * yaw moment를 좌우 wheel torque 차이로 변환한다.
-     *
-     * 기존 코드:
-     *
-     * torqueVectoring *= wheelRadius;
-     * torqueVectoring /= trackWidth;
-     */
-    if (trackWidth > 0.0001f)
-    {
-        torqueVectoring *=
-            m_WheelRadius /
-            trackWidth;
+    const PxConvexCoreGeometry wheelCylinderGeometry(
+        wheelCylinderCore);
+
+    const PxReal maxSweepDistance =
+        PxMax(0.0f, m_maxRaycastDistance - m_WheelRadius);
+
+    for (std::size_t i = 0; i < kWheelCount; ++i) {
+
+        WheelState* wheel = &m_Wheels[i];
+
+        const PxVec3 mountPositionWorld = chassisPose.transform(wheel->mountPositionLocal);
+
+        const PxQuat steeringRotation(wheel->steeringAngle, PxVec3(0.0f, 1.0f, 0.0f));
+
+        const PxTransform sweepStartPose(mountPositionWorld-chassisDown*m_SuspensionMaxLength, chassisPose.q*steeringRotation);
+
+        physx::PxSweepBuffer hitBuffer;
+
+        bool hasHit = m_Scene->sweep(
+            wheelCylinderGeometry,
+            sweepStartPose,
+            chassisDown,
+            maxSweepDistance+m_SuspensionMaxLength,
+            hitBuffer,
+            PxHitFlag::ePOSITION | PxHitFlag::eNORMAL,
+            PxQueryFilterData(PxQueryFlag::eSTATIC)
+        );
+
+        if (hasHit && hitBuffer.hasBlock) {
+
+            wheel->isGrounded = true;
+
+            const physx::PxSweepHit& hit = hitBuffer.block;
+
+            wheel->contactPointWorld = hit.position;
+            wheel->contactNormalWorld = hit.normal;
+
+            wheel->suspensionLength =
+                -PxClamp(
+                    hit.distance-m_SuspensionMaxLength,
+                    -m_SuspensionMaxLength,
+                    m_SuspensionMaxLength
+                );
+        }
+        else {
+            wheel->isGrounded = false;
+            wheel->suspensionLength = m_SuspensionRestLengthDelta;
+        }
     }
-    else
-    {
-        torqueVectoring = 0.0f;
+
+}
+
+void PhysicsSystem::CalculateNormalLoads() {
+
+    const PxTransform chassisPose = m_Chassis->getGlobalPose();
+
+    const PxVec3 ChassisUpWorld = chassisPose.q.rotate(PxVec3(0.0f, 1.0f, 0.0f));
+
+    for (std::size_t i = 0; i < kWheelCount; ++i) {
+
+        WheelState& wheel = m_Wheels[i];
+
+        if (wheel.isGrounded) {
+            wheel.locallinearVelocity = PxRigidBodyExt::getLocalVelocityAtLocalPos(*m_Chassis, wheel.mountPositionLocal);
+            wheel.compressionVelocity = wheel.locallinearVelocity.y;
+            wheel.suspensionForce = m_staticnormalLoad+m_SuspensionSpringStrength * wheel.suspensionLength - m_SuspensionDamperRate * wheel.compressionVelocity;
+            wheel.normalLoad = PxClamp(wheel.suspensionForce, 0.0f,m_MaxSuspensionForce) * PxMax(ChassisUpWorld.dot(wheel.contactNormalWorld),0.0f);
+        }
+        else {
+            wheel.suspensionForce = 0.0f;
+            wheel.normalLoad = 0.0f;
+        }
+        
     }
+}
 
-    // 지나치게 큰 토크 벡터링으로 한쪽 바퀴 토크가
-    // 완전히 뒤집히는 것을 방지한다.
-    const float maxVectoringTorque =
-        PxMax(
-            scaledDriveTorque,
-            0.0f);
+void PhysicsSystem::CalculateTireForces(
+    float fixedDeltaTime) {
 
-    torqueVectoring =
-        PxClamp(
-            torqueVectoring,
-            -maxVectoringTorque,
-            maxVectoringTorque);
+    const PxTransform chassisPose = m_Chassis->getGlobalPose();
 
-    // ---------------------------------------------------------
-    // 4. 앞뒤 및 좌우 토크 분배
-    // ---------------------------------------------------------
+    for (std::size_t i = 0; i < kWheelCount; ++i) {
+        WheelState& wheel = m_Wheels[i];
 
-    const float rearDriveRate =
-        1.0f -
-        m_FrontDriveRate;
+        wheel.longitudinalSlip = 0.0f;
+        wheel.slipAngle = 0.0f;
 
-    const float rearYawMomentRate =
-        1.0f -
-        m_FrontYawMomentRate;
+        wheel.longitudinalForce = 0.0f;
+        wheel.lateralForce = 0.0f;
 
-    const std::array<float, kWheelCount>
-        finalDriveTorque =
-    {
-        // RearLeft
-        scaledDriveTorque *
-            rearDriveRate -
-        torqueVectoring *
-            rearYawMomentRate,
+        //접지 하지 않아 지면으로부터 힘을 받지 않는경우
+        if (!wheel.isGrounded || wheel.normalLoad <= 0.0f) continue;
 
-        // RearRight
-        scaledDriveTorque *
-            rearDriveRate +
-        torqueVectoring *
-            rearYawMomentRate,
+        const PxQuat steeringRotation(wheel.steeringAngle, PxVec3(0.0f, 1.0f, 0.0f));
 
-        // FrontLeft
-        scaledDriveTorque *
-            m_FrontDriveRate -
-        torqueVectoring *
-            m_FrontYawMomentRate,
+        const PxVec3 tireForwardLocal = steeringRotation.rotate(PxVec3(0.0f, 0.0f, 1.0f));
 
-        // FrontRight
-        scaledDriveTorque *
-            m_FrontDriveRate +
-        torqueVectoring *
-            m_FrontYawMomentRate
-    };
+        PxVec3 tireForwardWorld = chassisPose.q.rotate(tireForwardLocal);
 
-    // ---------------------------------------------------------
-    // 5. 바퀴에 구동 토크 적용
-    // ---------------------------------------------------------
+        //Fx, Fz 방향 구하기
+        tireForwardWorld -= wheel.contactNormalWorld * tireForwardWorld.dot(wheel.contactNormalWorld);
 
-    const PxVec3 wheelRollAxisLocal(
-        1.0f,
-        0.0f,
-        0.0f);
+        PxVec3 tireRightWorld = wheel.contactNormalWorld.cross(tireForwardWorld);
 
-    constexpr float stopThreshold =
-        0.1f;
+        //바퀴 중심의 속도(바퀴의 병진속도) 좌표계에 투영하기
+        const PxVec3 wheelCenterLocal = wheel.mountPositionLocal + PxVec3(0.0f, wheel.suspensionLength, 0.0f);
 
-    for (std::size_t i = 0;
-        i < kWheelCount;
-        ++i)
-    {
-        PxRigidDynamic* wheel =
-            m_Wheels[i];
+        wheel.centerPositionWorld = chassisPose.transform(wheelCenterLocal);
 
-        if (wheel == nullptr)
-        {
+        const PxVec3 wheelCenterVelocityWorld = PxRigidBodyExt::getVelocityAtPos(*m_Chassis, wheel.centerPositionWorld);
+
+
+        //바퀴의 접촉점 좌표계에서의 속도 계산, 접촉점에서의 바퀴 속도 계산
+        const float longitudinalSpeed = wheelCenterVelocityWorld.dot(tireForwardWorld);
+
+        const float lateralSpeed = wheelCenterVelocityWorld.dot(tireRightWorld);
+
+        const float wheelSurfaceSpeed = wheel.angularVelocity * m_WheelRadius;
+
+
+        //슬립비 계산
+        const float slipDenominator = PxMax(std::abs(longitudinalSpeed), m_MinSlipSpeed);
+
+        wheel.longitudinalSlip = (wheelSurfaceSpeed - longitudinalSpeed) / slipDenominator;
+
+        wheel.longitudinalSlip = PxClamp(wheel.longitudinalSlip, -m_MaxSlipRatio, m_MaxSlipRatio);
+
+
+        //슬립각 계산
+        const float slipAngleDenominator = PxMax(std::abs(longitudinalSpeed), m_MinSlipSpeed);
+
+        wheel.slipAngle = std::atan2(lateralSpeed, slipAngleDenominator);
+
+        wheel.slipAngle = PxClamp(wheel.slipAngle, -m_MaxSlipAngle, m_MaxSlipAngle);
+
+        //종력, 횡력 계산(현재는 선형 모델)
+
+        float longitudinalForce = m_LongitudinalStiffness * wheel.longitudinalSlip;
+
+        float lateralForce = -m_LateralStiffness * wheel.slipAngle;
+
+        //마찰제한
+
+        const float maximumTireForce = m_TireFrictionCoefficient * wheel.normalLoad;
+
+        const float forceMagnitudeSquared = longitudinalForce * longitudinalForce + lateralForce * lateralForce;
+
+        const float maximumForceSquared = maximumTireForce * maximumTireForce;
+
+        if (forceMagnitudeSquared > maximumForceSquared && forceMagnitudeSquared > 1.0e-8f) {
+            const float forceMagnitude = std::sqrt(maximumForceSquared);
+
+            const float forceScale = maximumTireForce / forceMagnitude;
+            
+            longitudinalForce *= forceScale;
+            
+            lateralForce *= forceScale;
+
+        }
+
+        wheel.longitudinalForce = longitudinalForce;
+
+        wheel.lateralForce = lateralForce;
+
+        DebugPrint(
+            "[%zu] %.3f degree, %.3f longi, %.3f later, %.3f normal\n",
+            i,
+            wheel.slipAngle * 180.0f / PxPi,
+            longitudinalForce,
+            lateralForce,
+            wheel.normalLoad);
+
+    }
+}
+
+void PhysicsSystem::ApplyWheelForces() {
+    const PxTransform chassisPose = m_Chassis->getGlobalPose();
+
+    const PxVec3 chassisUpWorld = chassisPose.q.rotate(PxVec3(0.0f, 1.0f, 0.0f));
+
+    for (const WheelState& wheel : m_Wheels) {
+        if (!wheel.isGrounded) {
             continue;
         }
 
-        const PxTransform wheelPose =
-            wheel->getGlobalPose();
+        const PxVec3 suspensionForceWorld = chassisUpWorld * wheel.suspensionForce;
+        const PxVec3 longitudinalForceWorld = wheel.longitudinalDirectionWorld * wheel.longitudinalForce;
+        const PxVec3 lateralForceWorld = wheel.lateralDirectionWorld * wheel.lateralForce;
 
-        const PxVec3 rollAxisWorld =
-            wheelPose.q.rotate(
-                wheelRollAxisLocal);
+        const PxVec3 totalTireForceWorld = longitudinalForceWorld +lateralForceWorld;
 
-        const float wheelAngularSpeed =
-            wheel->getAngularVelocity()
-            .dot(rollAxisWorld);
+        const PxVec3 mountPositionWorld = chassisPose.transform(wheel.mountPositionLocal);
 
-        float driveDirection =
-            static_cast<float>(
-                m_VehicleInput.drive);
+        PxRigidBodyExt::addForceAtPos(*m_Chassis, suspensionForceWorld, mountPositionWorld, PxForceMode::eFORCE);
 
-        /*
-         * drive == 0이면 별도 브레이크 입력 없이
-         * 현재 회전 반대 방향으로 엔진 브레이크성 감쇠를 준다.
-         *
-         * 기존 코드에서는 torqueMagnitude를 먼저 계산한 뒤
-         * forwardInput을 바꾸고 있어서 실제 감쇠 토크가
-         * 정상적으로 적용되지 않았다.
-         */
-        if (m_VehicleInput.drive == 0)
-        {
-            if (wheelAngularSpeed >
-                stopThreshold)
-            {
-                driveDirection = -1.0f;
-            }
-            else if (wheelAngularSpeed <
-                -stopThreshold)
-            {
-                driveDirection = 1.0f;
-            }
-            else
-            {
-                driveDirection = 0.0f;
-            }
+        PxRigidBodyExt::addForceAtPos(*m_Chassis, totalTireForceWorld, wheel.centerPositionWorld, PxForceMode::eFORCE);
+    }
+}
+
+void PhysicsSystem::UpdateWheelRotation(
+    float fixedDeltaTime) {
+
+    const PxTransform chassisPose = m_Chassis->getGlobalPose();
+
+    for (WheelState& wheel : m_Wheels) {
+        if (fixedDeltaTime > 0.0f) {
+            wheel.rotationAngle += wheel.angularVelocity * fixedDeltaTime;
+
+            wheel.rotationAngle = std::fmod(wheel.rotationAngle, PxTwoPi);
+
         }
 
-        float torqueMagnitude =
-            driveDirection *
-            finalDriveTorque[i];
+        const PxVec3 wheelCenterLocal = wheel.mountPositionLocal + PxVec3(0.0f, wheel.suspensionLength, 0.0f);
 
-        // 입력이 없을 때 감속이 지나치게 강하지 않도록
-        // 엔진 브레이크 토크를 줄인다.
-        if (m_VehicleInput.drive == 0)
-        {
-            torqueMagnitude *=
-                m_CoastTorqueRate;
-        }
+        wheel.centerPositionWorld = chassisPose.transform(wheelCenterLocal);
 
-        wheel->addTorque(
-            rollAxisWorld *
-            torqueMagnitude,
-            PxForceMode::eFORCE);
+
+        const PxQuat steeringRotation(wheel.steeringAngle, PxVec3(0.0f, 1.0f, 0.0f));
+
+        const PxQuat rollingRotation(wheel.rotationAngle, PxVec3(1.0f, 0.0f, 0.0f));
+
+        PxQuat wheelRotationWorld = chassisPose.q * steeringRotation * rollingRotation;
+
+        wheel.visualPoseWorld =
+            PxTransform(
+                wheel.centerPositionWorld,
+                wheelRotationWorld);
     }
 }
 
@@ -1016,20 +873,30 @@ void PhysicsSystem::ApplyVehicleControl(
         return;
     }
 
-    for (physx::PxRigidDynamic* wheel :
-        m_Wheels)
-    {
-        if (wheel == nullptr)
-        {
-            return;
-        }
-    }
-    //ApplySteering과 ApplyDrive 구현 필요 일단은 차량 출력되는지 확인하자
     ApplySteering(
         fixedDeltaTime);
 
     ApplyDrive(
         fixedDeltaTime);
+
+    RayCasting();
+
+    //CylinderSweep();
+
+    CalculateNormalLoads();
+    for (WheelState& wheel : m_Wheels) {
+        DebugPrint("after Normal wheel force: %.3f, %d, %.3f\n", wheel.suspensionForce, wheel.isGrounded, wheel.suspensionLength);
+    }
+    
+    CalculateTireForces(fixedDeltaTime);
+
+    for (WheelState& wheel : m_Wheels) {
+    }
+    ApplyWheelForces();
+    for (WheelState& wheel : m_Wheels) {
+    }
+   
+
 }
 
 void PhysicsSystem::ResetRigidBodyState(
@@ -1062,14 +929,6 @@ void PhysicsSystem::ResetVehicle()
         m_Chassis,
         m_InitialChassisPose);
 
-    for (std::size_t i = 0;
-        i < kWheelCount;
-        ++i)
-    {
-        ResetRigidBodyState(
-            m_Wheels[i],
-            m_InitialWheelPoses[i]);
-    }
 
     m_TargetSteeringAngle =
         0.0f;
@@ -1098,41 +957,12 @@ void PhysicsSystem::Step(
 
     m_Scene->fetchResults(
         true);
+
+    UpdateWheelRotation(fixedDeltaTime);
 }
 
 void PhysicsSystem::Shutdown()
 {
-    // ---------------------------------------------------------
-    // Joint
-    // ---------------------------------------------------------
-
-    for (physx::PxD6Joint*& joint :
-        m_WheelJoints)
-    {
-        if (joint != nullptr)
-        {
-            joint->release();
-            joint = nullptr;
-        }
-    }
-
-    // ---------------------------------------------------------
-    // Dynamic Actors
-    // ---------------------------------------------------------
-
-    for (physx::PxRigidDynamic*& wheel :
-        m_Wheels)
-    {
-        if (wheel != nullptr)
-        {
-            wheel->release();
-            wheel = nullptr;
-        }
-    }
-
-    m_WheelShapes.fill(
-        nullptr);
-
     if (m_Chassis != nullptr)
     {
         m_Chassis->release();
@@ -1240,39 +1070,4 @@ physx::PxShape*
 PhysicsSystem::GetChassisShape() const
 {
     return m_ChassisShape;
-}
-
-physx::PxRigidDynamic*
-PhysicsSystem::GetWheelActor(
-    std::size_t wheelIndex) const
-{
-    if (!IsValidWheelIndex(
-        wheelIndex))
-    {
-        return nullptr;
-    }
-
-    return m_Wheels[
-        wheelIndex];
-}
-
-physx::PxShape*
-PhysicsSystem::GetWheelShape(
-    std::size_t wheelIndex) const
-{
-    if (!IsValidWheelIndex(
-        wheelIndex))
-    {
-        return nullptr;
-    }
-
-    return m_WheelShapes[
-        wheelIndex];
-}
-
-bool PhysicsSystem::IsValidWheelIndex(
-    std::size_t wheelIndex)
-{
-    return wheelIndex <
-        kWheelCount;
 }
