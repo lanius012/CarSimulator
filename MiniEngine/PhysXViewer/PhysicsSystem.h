@@ -341,16 +341,16 @@ private:
     float m_SuspensionRestLengthDelta = 0.1f;
 
     // Raycast로 허용하는 최대 서스펜션 길이
-    float m_SuspensionMaxLength = 0.4f;
+    float m_SuspensionMaxLength = 0.3f;
 
     // Raycast 최대 길이
     float m_maxRaycastDistance = m_WheelRadius + m_SuspensionMaxLength;
 
     // N/m
-    float m_SuspensionSpringStrength = 20000.0f;
+    float m_SuspensionSpringStrength = m_SuspensionRestLengthDelta*m_ChassisMass*9.81f;
 
     // N·s/m
-    float m_SuspensionDamperRate = 2500.0f;
+    float m_SuspensionDamperRate = m_SuspensionSpringStrength/10.0f;
 
     // 계산 폭주를 막기 위한 선택적 상한
     float m_MaxSuspensionForce = 100000.0f;
